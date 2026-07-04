@@ -478,6 +478,35 @@ export function buildPlot({ seed = randomSeed(), maxBuildings = 5, materials }) 
     while (strips.length && !strips[strips.length - 1].runs.length) strips.pop();
     if (!strips.length) return [];
 
+    // keep only the largest connected patch of tarmac — no orphan fragments
+    const nodes = [];
+    strips.forEach((s, si) => s.runs.forEach(r => nodes.push({ si, r, comp: -1 })));
+    const touches = (a, b) => Math.min(a[1], b[1]) - Math.max(a[0], b[0]) >= stall;
+    let comps = 0;
+    for (const n of nodes) {
+      if (n.comp !== -1) continue;
+      n.comp = comps;
+      const stack = [n];
+      while (stack.length) {
+        const cur = stack.pop();
+        for (const m of nodes)
+          if (m.comp === -1 && Math.abs(m.si - cur.si) === 1 && touches(m.r, cur.r)) {
+            m.comp = comps; stack.push(m);
+          }
+      }
+      comps++;
+    }
+    const area = new Array(comps).fill(0);
+    for (const n of nodes) area[n.comp] += (n.r[1] - n.r[0]) * strips[n.si].h;
+    const main = area.indexOf(Math.max(...area));
+    strips.forEach((s, si) => {
+      s.runs = s.runs.filter(r =>
+        nodes.some(n => n.si === si && n.r === r && n.comp === main));
+    });
+    while (strips.length && !strips[0].runs.length) strips.shift();
+    while (strips.length && !strips[strips.length - 1].runs.length) strips.pop();
+    if (!strips.length) return [];
+
     const pts = [];
     const H = (xa, xb, zz) => { if (xb - xa > 0.01) pts.push(xa, 0, zz, xb, 0, zz); };
     const V = (xx, za, zb) => { if (zb - za > 0.01) pts.push(xx, 0, za, xx, 0, zb); };
