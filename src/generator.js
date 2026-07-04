@@ -525,20 +525,13 @@ export function buildPlot({ seed = randomSeed(), maxBuildings = 5, materials }) 
       pts.push(ent.x, 0, ent.za, far, 0, ent.za,  ent.x, 0, ent.zb, far, 0, ent.zb);
     }
 
-    // 3. one union outline around the whole lot, with a gap at the entrance
+    // 3. trace the union outline as closed loops, then chamfer every corner
+    //    so the lot reads as one shape with angled edges, not stacked rects
+    const E = [];
+    const eV = (xx, za, zb) => { if (zb - za > 0.01) E.push([xx, za, xx, zb]); };
+    const eH = (xa, xb, zz) => { if (xb - xa > 0.01) E.push([xa, zz, xb, zz]); };
     for (const s of strips)
-      for (const r of s.runs) {
-        const [ra, rb] = r;
-        if (ent && s === ent.strip && r === ent.run) {
-          const solidEnd = ent.dir > 0 ? ra : rb;
-          V(solidEnd, s.z, s.z + s.h);
-          V(ent.x, s.z, ent.za);
-          V(ent.x, ent.zb, s.z + s.h);
-        } else {
-          V(ra, s.z, s.z + s.h);
-          V(rb, s.z, s.z + s.h);
-        }
-      }
+      for (const [ra, rb] of s.runs) { eV(ra, s.z, s.z + s.h); eV(rb, s.z, s.z + s.h); }
     const uncovered = (A, B) => {   // parts of intervals A not covered by B
       const out = [];
       for (const [a0, a1] of A) {
@@ -553,14 +546,115 @@ export function buildPlot({ seed = randomSeed(), maxBuildings = 5, materials }) 
       }
       return out;
     };
-    for (const [xa, xb] of strips[0].runs) H(xa, xb, strips[0].z);
+    for (const [xa, xb] of strips[0].runs) eH(xa, xb, strips[0].z);
     for (let i = 0; i < strips.length - 1; i++) {
       const zz = strips[i].z + strips[i].h;
-      for (const [xa, xb] of uncovered(strips[i].runs, strips[i + 1].runs)) H(xa, xb, zz);
-      for (const [xa, xb] of uncovered(strips[i + 1].runs, strips[i].runs)) H(xa, xb, zz);
+      for (const [xa, xb] of uncovered(strips[i].runs, strips[i + 1].runs)) eH(xa, xb, zz);
+      for (const [xa, xb] of uncovered(strips[i + 1].runs, strips[i].runs)) eH(xa, xb, zz);
     }
     const last = strips[strips.length - 1];
-    for (const [xa, xb] of last.runs) H(xa, xb, last.z + last.h);
+    for (const [xa, xb] of last.runs) eH(xa, xb, last.z + last.h);
+
+    // stitch edges into loops by shared endpoints
+    const K = (x, z) => `${Math.round(x * 64)},${Math.round(z * 64)}`;
+    const at = new Map();
+    E.forEach((e, i) => {
+      for (const k of [K(e[0], e[1]), K(e[2], e[3])]) {
+        if (!at.has(k)) at.set(k, []);
+        at.get(k).push(i);
+      }
+    });
+    const usedE = new Array(E.length).fill(false);
+    const loops = [];
+    for (let i = 0; i < E.length; i++) {
+      if (usedE[i]) continue;
+      usedE[i] = true;
+      const loop = [[E[i][0], E[i][1]], [E[i][2], E[i][3]]];
+      for (;;) {
+        const tail = loop[loop.length - 1];
+        const next = (at.get(K(tail[0], tail[1])) || []).find(j => !usedE[j]);
+        if (next === undefined) break;
+        usedE[next] = true;
+        const [x0, z0, x1, z1] = E[next];
+        loop.push(Math.abs(x0 - tail[0]) + Math.abs(z0 - tail[1]) < 0.05
+          ? [x1, z1] : [x0, z0]);
+      }
+      loop.pop();                                  // closing point = start
+      // merge collinear vertices
+      for (let v = loop.length - 1; v >= 0 && loop.length > 3; v--) {
+        const p = loop[(v - 1 + loop.length) % loop.length];
+        const c = loop[v];
+        const n = loop[(v + 1) % loop.length];
+        if ((Math.abs(p[0] - c[0]) < 0.02 && Math.abs(c[0] - n[0]) < 0.02) ||
+            (Math.abs(p[1] - c[1]) < 0.02 && Math.abs(c[1] - n[1]) < 0.02))
+          loop.splice(v, 1);
+      }
+      if (loop.length >= 4) loops.push(loop);
+    }
+
+    // where the outline staircases along a rotated building, replace the
+    // steps with one straight edge that runs parallel to that wall
+    const angledBldgs = buildingRects.filter(p => {
+      const m = ((p.a % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2);
+      return m > 0.06 && m < Math.PI / 2 - 0.06;
+    });
+    const wallIdx = v =>
+      angledBldgs.findIndex(p => pointNearRect(v[0], v[1], p, setback + 3.5));
+    for (const loop of loops) {
+      const tag = loop.map(wallIdx);
+      for (let i = 0; i < loop.length && loop.length > 3;) {
+        if (tag[i] < 0) { i++; continue; }
+        let j = i;
+        while (j + 1 < loop.length && tag[j + 1] === tag[i]) j++;
+        if (j - i >= 2) {
+          const A = loop[i], B = loop[j], bld = angledBldgs[tag[i]];
+          const safe = [0.25, 0.5, 0.75].every(t => !pointNearRect(
+            A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, bld, 0.3));
+          if (safe) {
+            loop.splice(i + 1, j - i - 1);
+            tag.splice(i + 1, j - i - 1);
+            i += 2;
+            continue;
+          }
+        }
+        i = j + 1;
+      }
+    }
+
+    // chamfer corners and emit, cutting the entrance opening out
+    const emit = (x0, z0, x1, z1) => {
+      if (ent && Math.abs(x0 - x1) < 0.02 && Math.abs(x0 - ent.x) < 0.05) {
+        const lo = Math.min(z0, z1), hi = Math.max(z0, z1);
+        if (lo < ent.zb && hi > ent.za) {          // overlaps the opening
+          if (lo < ent.za) pts.push(x0, 0, lo, x0, 0, ent.za);
+          if (hi > ent.zb) pts.push(x0, 0, ent.zb, x0, 0, hi);
+          return;
+        }
+      }
+      pts.push(x0, 0, z0, x1, 0, z1);
+    };
+    for (const loop of loops) {
+      const nv = loop.length;
+      const ins = loop.map((c, i) => {
+        const p = loop[(i - 1 + nv) % nv], n = loop[(i + 1) % nv];
+        const lp = Math.hypot(c[0] - p[0], c[1] - p[1]);
+        const ln = Math.hypot(n[0] - c[0], n[1] - c[1]);
+        return Math.min(2.6, lp / 3, ln / 3);
+      });
+      for (let i = 0; i < nv; i++) {
+        const a = loop[i], b = loop[(i + 1) % nv], j = (i + 1) % nv;
+        const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        const ux = (b[0] - a[0]) / L, uz = (b[1] - a[1]) / L;
+        emit(a[0] + ux * ins[i], a[1] + uz * ins[i],
+             b[0] - ux * ins[j], b[1] - uz * ins[j]);
+        const c = loop[(i + 2) % nv];               // chamfer diagonal at b
+        const L2 = Math.hypot(c[0] - b[0], c[1] - b[1]);
+        const q = [b[0] + ((c[0] - b[0]) / L2) * ins[j],
+                   b[1] + ((c[1] - b[1]) / L2) * ins[j]];
+        if (ins[j] > 0.05)
+          pts.push(b[0] - ux * ins[j], 0, b[1] - uz * ins[j], q[0], 0, q[1]);
+      }
+    }
 
     // 4. sparse stall markings: clustered runs of dividers, not wall-to-wall
     for (const s of strips) {
