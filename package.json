@@ -1,0 +1,30 @@
+{
+  "name": "cad-turnarounds",
+  "version": "0.1.0",
+  "description": "Procedural CAD-style building turnarounds for three.js — hidden-line wireframes of small mixed-use plots (malls, parking decks, offices, data centers, little houses) on an orthographic turntable with a transparent background.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "peerDependencies": {
+    "three": ">=0.150.0"
+  },
+  "keywords": [
+    "threejs",
+    "wireframe",
+    "cad",
+    "hidden-line",
+    "orthographic",
+    "turntable",
+    "procedural",
+    "architecture"
+  ],
+  "author": "Georg Graf",
+  "license": "MIT"
+}

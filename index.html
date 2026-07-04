@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CAD Turnarounds — Sheet 01</title>
+<style>
+  :root {
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+  /* ——— sheet themes ——— */
+  [data-theme="blueprint"] {
+    --paper: #14357c;
+    --paper-deep: #102a63;
+    --grid-minor: rgba(220, 232, 255, 0.07);
+    --grid-major: rgba(220, 232, 255, 0.14);
+    --ink: #e9f0ff;
+    --ink-dim: rgba(233, 240, 255, 0.55);
+  }
+  [data-theme="graphite"] {
+    --paper: #e9eae4;
+    --paper-deep: #e2e3dc;
+    --grid-minor: rgba(30, 34, 38, 0.06);
+    --grid-major: rgba(30, 34, 38, 0.13);
+    --ink: #1e2226;
+    --ink-dim: rgba(30, 34, 38, 0.55);
+  }
+  [data-theme="night"] {
+    --paper: #17191c;
+    --paper-deep: #121417;
+    --grid-minor: rgba(230, 233, 237, 0.05);
+    --grid-major: rgba(230, 233, 237, 0.11);
+    --ink: #e6e9ed;
+    --ink-dim: rgba(230, 233, 237, 0.5);
+  }
+
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: var(--mono);
+    color: var(--ink);
+    background:
+      linear-gradient(var(--grid-major) 1px, transparent 1px) 0 0 / 120px 120px,
+      linear-gradient(90deg, var(--grid-major) 1px, transparent 1px) 0 0 / 120px 120px,
+      linear-gradient(var(--grid-minor) 1px, transparent 1px) 0 0 / 24px 24px,
+      linear-gradient(90deg, var(--grid-minor) 1px, transparent 1px) 0 0 / 24px 24px,
+      radial-gradient(120% 90% at 50% 40%, var(--paper), var(--paper-deep));
+    overflow: hidden;
+    user-select: none;
+  }
+  canvas#stage {
+    position: fixed; inset: 0;
+    width: 100%; height: 100%;
+    display: block;
+    cursor: grab;
+  }
+  canvas#stage:active { cursor: grabbing; }
+
+  /* ——— registration marks ——— */
+  .reg { position: fixed; width: 22px; height: 22px; pointer-events: none; opacity: 0.7; }
+  .reg::before, .reg::after { content: ""; position: absolute; background: var(--ink-dim); }
+  .reg::before { left: 50%; top: 0; width: 1px; height: 100%; }
+  .reg::after  { top: 50%; left: 0; height: 1px; width: 100%; }
+  .reg.tl { top: 14px; left: 14px; }
+  .reg.tr { top: 14px; right: 14px; }
+  .reg.bl { bottom: 14px; left: 14px; }
+  .reg.br { bottom: 14px; right: 14px; }
+
+  /* ——— shared chrome ——— */
+  .panel {
+    position: fixed;
+    border: 1px solid var(--ink-dim);
+    background: color-mix(in srgb, var(--paper) 82%, transparent);
+    backdrop-filter: blur(2px);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
+  .eyebrow {
+    font-size: 10px; letter-spacing: 0.22em; color: var(--ink-dim);
+    padding: 8px 10px 6px; border-bottom: 1px solid var(--ink-dim);
+  }
+  .cell {
+    display: flex; justify-content: space-between; gap: 10px;
+    padding: 7px 12px; border-bottom: 1px solid var(--ink-dim);
+  }
+  .cell:last-child { border-bottom: 0; }
+  .k { color: var(--ink-dim); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; }
+  .v { text-transform: uppercase; text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* ——— generator panel, top left ——— */
+  #genpanel { top: 28px; left: 28px; min-width: 230px; }
+  #generate {
+    display: block; width: 100%; box-sizing: border-box;
+    font: inherit; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--paper); background: var(--ink); border: 0;
+    padding: 12px 0; cursor: pointer;
+  }
+  #generate:hover { opacity: 0.88; }
+  #generate:active { transform: translateY(1px); }
+
+  /* ——— controls, bottom left ——— */
+  #controls { bottom: 28px; left: 28px; min-width: 244px; }
+  #controls .row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 7px 12px; border-bottom: 1px solid var(--ink-dim);
+  }
+  #controls .row:last-child { border-bottom: 0; }
+  #controls label { color: var(--ink-dim); text-transform: uppercase; font-size: 10px; letter-spacing: 0.16em; }
+  input[type="range"] {
+    appearance: none; -webkit-appearance: none;
+    width: 110px; height: 1px; background: var(--ink-dim); outline-offset: 4px;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    appearance: none; -webkit-appearance: none;
+    width: 9px; height: 9px; background: var(--ink); border-radius: 0;
+    transform: rotate(45deg); cursor: ew-resize;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 9px; height: 9px; background: var(--ink); border: 0; border-radius: 0;
+    transform: rotate(45deg); cursor: ew-resize;
+  }
+  input[type="checkbox"] { accent-color: var(--ink); }
+  .btnrow { display: flex; }
+  .btnrow button {
+    flex: 1; font: inherit; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink); background: none; border: 0; border-right: 1px solid var(--ink-dim);
+    padding: 9px 0; cursor: pointer;
+  }
+  .btnrow button:last-child { border-right: 0; }
+  .btnrow button:hover { background: color-mix(in srgb, var(--ink) 10%, transparent); }
+  .btnrow button.armed { background: var(--ink); color: var(--paper); }
+
+  #themes { display: flex; }
+  #themes button {
+    flex: 1; font: inherit; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ink-dim); background: none; border: 0; border-right: 1px solid var(--ink-dim);
+    padding: 8px 0; cursor: pointer;
+  }
+  #themes button:last-child { border-right: 0; }
+  #themes button[aria-pressed="true"] { color: var(--paper); background: var(--ink); }
+
+  /* ——— title block, bottom right ——— */
+  #titleblock { bottom: 28px; right: 28px; width: 264px; }
+  #angle { min-width: 7ch; display: inline-block; }
+  #recdot { color: var(--ink-dim); }
+  #recdot.on { color: #ff5340; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0.2; } }
+
+  button:focus-visible, input:focus-visible {
+    outline: 1px dashed var(--ink); outline-offset: 3px;
+  }
+
+  @media (max-width: 860px) {
+    #titleblock { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #recdot.on { animation: none; }
+  }
+</style>
+</head>
+<body data-theme="blueprint">
+
+<canvas id="stage"></canvas>
+
+<div class="reg tl"></div><div class="reg tr"></div>
+<div class="reg bl"></div><div class="reg br"></div>
+
+<div class="panel" id="genpanel">
+  <div class="eyebrow">CAD TURNAROUNDS · SHEET 01</div>
+  <button id="generate">⟳ Generate plot</button>
+  <div class="cell"><span class="k">Plot no</span><span class="v" id="plotno">—</span></div>
+  <div class="cell"><span class="k">Buildings</span><span class="v" id="bcount">—</span></div>
+</div>
+
+<div class="panel" id="controls">
+  <div id="themes" role="group" aria-label="Sheet theme">
+    <button data-t="blueprint" aria-pressed="true">Blueprint</button>
+    <button data-t="graphite" aria-pressed="false">Graphite</button>
+    <button data-t="night" aria-pressed="false">Night</button>
+  </div>
+  <div class="row"><label for="speed">Turn °/s</label><input id="speed" type="range" min="6" max="60" value="24" step="1"></div>
+  <div class="row"><label for="elev">Elevation °</label><input id="elev" type="range" min="4" max="42" value="22" step="0.5"></div>
+  <div class="row"><label for="site">Site boundary</label><input id="site" type="checkbox" checked></div>
+  <div class="row"><label for="hidden">Hidden lines</label><input id="hidden" type="checkbox" checked></div>
+  <div class="row"><label for="mark">Mark subject bldg</label><input id="mark" type="checkbox" checked></div>
+  <div class="btnrow">
+    <button id="pause" aria-pressed="false">Pause</button>
+    <button id="png" title="Export current frame as transparent PNG">PNG</button>
+    <button id="rec" title="Record one full revolution as WebM">Rec ●</button>
+  </div>
+</div>
+
+<div class="panel" id="titleblock">
+  <div class="cell"><span class="k">Project</span><span class="v">CAD Turnarounds</span></div>
+  <div class="cell"><span class="k">Drawing</span><span class="v" id="tb-drawing">—</span></div>
+  <div class="cell"><span class="k">Projection</span><span class="v">Orthographic</span></div>
+  <div class="cell"><span class="k">Scale</span><span class="v" id="tb-scale">1 : —</span></div>
+  <div class="cell"><span class="k">View</span><span class="v"><span id="angle">000.0°</span></span></div>
+  <div class="cell"><span class="k">Capture</span><span class="v"><span id="recdot">● STANDBY</span></span></div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.module.js",
+    "cad-turnarounds": "./src/index.js"
+  }
+}
+</script>
+<script type="module">
+import { CadTurnaround } from 'cad-turnarounds';
+
+const $ = id => document.getElementById(id);
+const THEME_LINE = { blueprint: 0xeef4ff, graphite: 0x23272b, night: 0xeceff2 };
+// safety yellow on dark sheets, construction red on paper
+const THEME_ACCENT = { blueprint: 0xffc233, graphite: 0xd23c1e, night: 0xffc233 };
+
+const urlParams = new URLSearchParams(location.search);
+const urlSeed = urlParams.get('seed');
+const urlTheme = urlParams.get('theme');
+if (urlTheme && THEME_LINE[urlTheme]) document.body.dataset.theme = urlTheme;
+const theme0 = document.body.dataset.theme;
+
+const ct = new CadTurnaround($('stage'), {
+  seed: urlSeed ? parseInt(urlSeed, 16) >>> 0 : undefined,
+  lineColor: THEME_LINE[theme0],
+  highlightColor: THEME_ACCENT[theme0],
+  speed: 24,
+  elevation: 22,
+  autoRotate: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  onFrame: ({ yawDeg }) => {
+    $('angle').textContent = yawDeg.toFixed(1).padStart(5, '0') + '°';
+  },
+});
+
+function refreshSheet() {
+  const hex = ct.info.seed.toString(16).toUpperCase().padStart(8, '0');
+  $('plotno').textContent = hex;
+  $('bcount').textContent = `${ct.info.count} / 5`;
+  $('tb-drawing').textContent = `GN-${hex.slice(0, 4)} Mixed-use plot`;
+  $('tb-scale').textContent = `1 : ${Math.round(ct.scaleDenominator / 5) * 5}`;
+}
+
+$('generate').addEventListener('click', () => { ct.generate(); refreshSheet(); });
+window.addEventListener('resize', () => refreshSheet());
+refreshSheet();
+
+$('speed').addEventListener('input', e => ct.setSpeed(+e.target.value));
+$('elev').addEventListener('input', e => ct.setElevation(+e.target.value));
+$('site').addEventListener('change', e => ct.setSiteBoundary(e.target.checked));
+$('hidden').addEventListener('change', e => ct.setHiddenLines(e.target.checked));
+$('mark').addEventListener('change', e => ct.setHighlight(e.target.checked));
+
+const pauseBtn = $('pause');
+function setPlaying(p) {
+  p ? ct.play() : ct.pause();
+  pauseBtn.textContent = p ? 'Pause' : 'Play';
+  pauseBtn.setAttribute('aria-pressed', String(!p));
+}
+pauseBtn.addEventListener('click', () => setPlaying(!ct.playing));
+setPlaying(ct.playing);
+
+for (const btn of document.querySelectorAll('#themes button')) {
+  btn.setAttribute('aria-pressed', String(btn.dataset.t === theme0));
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#themes button').forEach(b =>
+      b.setAttribute('aria-pressed', String(b === btn)));
+    document.body.dataset.theme = btn.dataset.t;
+    ct.setLineColor(THEME_LINE[btn.dataset.t]);
+    ct.setHighlightColor(THEME_ACCENT[btn.dataset.t]);
+  });
+}
+
+$('png').addEventListener('click', async () => {
+  const blob = await ct.exportPNG();
+  const hex = ct.info.seed.toString(16).toUpperCase().padStart(8, '0');
+  download(blob, `plot-${hex}-${Math.round(ct.yawDeg)}deg.png`);
+});
+
+const recBtn = $('rec');
+let recording = null;
+recBtn.addEventListener('click', async () => {
+  if (recording) { recording.stop(); return; }
+  recording = ct.recordTurn();
+  recBtn.classList.add('armed');
+  recBtn.textContent = 'Stop ■';
+  $('recdot').textContent = '● REC';
+  $('recdot').classList.add('on');
+  setPlaying(true);
+
+  const blob = await recording.done;
+  recording = null;
+  recBtn.classList.remove('armed');
+  recBtn.textContent = 'Rec ●';
+  $('recdot').textContent = '● STANDBY';
+  $('recdot').classList.remove('on');
+  const hex = ct.info.seed.toString(16).toUpperCase().padStart(8, '0');
+  download(blob, `plot-${hex}-turnaround.webm`);
+});
+
+function download(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+window.addEventListener('keydown', e => {
+  if (e.target instanceof HTMLInputElement) return;
+  if (e.code === 'Space') { e.preventDefault(); setPlaying(!ct.playing); }
+  if (e.key.toLowerCase() === 'g') { ct.generate(); refreshSheet(); }
+});
+</script>
+</body>
+</html>
