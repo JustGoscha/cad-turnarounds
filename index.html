@@ -197,13 +197,15 @@
   <div class="cell"><span class="k">Scale</span><span class="v" id="tb-scale">1 : —</span></div>
   <div class="cell"><span class="k">View</span><span class="v"><span id="angle">000.0°</span></span></div>
   <div class="cell"><span class="k">Capture</span><span class="v"><span id="recdot">● STANDBY</span></span></div>
+  <div class="cell"><span class="k">Rev</span><span class="v">05</span></div>
 </div>
 
 <script type="importmap">
 {
   "imports": {
     "three": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.module.js",
-    "cad-turnarounds": "./src/index.js"
+    "cad-turnarounds": "./src/index.js?rev=5",
+    "./src/generator.js": "./src/generator.js?rev=5"
   }
 }
 </script>
@@ -313,6 +315,9 @@ window.addEventListener('keydown', e => {
   if (e.target instanceof HTMLInputElement) return;
   if (e.code === 'Space') { e.preventDefault(); setPlaying(!ct.playing); }
   if (e.key.toLowerCase() === 'g') { ct.generate(); refreshSheet(); }
+  if (e.key === '+' || e.key === '=') ct.zoom *= 1.15;
+  if (e.key === '-') ct.zoom /= 1.15;
+  if (e.key === '0') ct.zoom = 1;
 });
 </script>
 </body>

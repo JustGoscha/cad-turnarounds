@@ -299,13 +299,29 @@ export class CadTurnaround {
     };
     this.canvas.addEventListener('pointerup', up);
     this.canvas.addEventListener('pointercancel', up);
-    // vertical scroll zooms, horizontal scroll spins the turntable
+    // Vertical scroll zooms, horizontal scroll spins the turntable.
+    // Trackpad pinch arrives as ctrl+wheel (Chrome/Edge/Firefox) or as
+    // Safari's proprietary gesture* events — handle all of them.
     this.canvas.addEventListener('wheel', e => {
       e.preventDefault();
-      if (Math.abs(e.deltaX) > Math.abs(e.deltaY))
+      if (e.ctrlKey) {                                 // pinch gesture
+        this.zoom = this._zoom * Math.exp(-e.deltaY * 0.012);
+      } else if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
         this._yaw += e.deltaX * 0.003;
-      else
-        this.zoom = this._zoom * Math.exp(-e.deltaY * 0.0015);
+      } else {
+        const px = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;  // lines → px
+        this.zoom = this._zoom * Math.exp(-px * 0.002);
+      }
     }, { passive: false });
+    let pinchStart = 1;
+    this.canvas.addEventListener('gesturestart', e => {
+      e.preventDefault();
+      pinchStart = this._zoom;
+    });
+    this.canvas.addEventListener('gesturechange', e => {
+      e.preventDefault();
+      this.zoom = pinchStart * e.scale;
+    });
+    this.canvas.addEventListener('gestureend', e => e.preventDefault());
   }
 }
