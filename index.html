@@ -230,6 +230,9 @@ const ct = new CadTurnaround($('stage'), {
   autoRotate: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
   onFrame: ({ yawDeg }) => {
     $('angle').textContent = yawDeg.toFixed(1).padStart(5, '0') + '°';
+    const sc = `1 : ${Math.round(ct.scaleDenominator / 5) * 5}`;
+    const el = $('tb-scale');
+    if (el.textContent !== sc) el.textContent = sc;
   },
 });
 

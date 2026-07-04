@@ -1,6 +1,6 @@
 # cad-turnarounds
 
-Procedural CAD-style building turnarounds for three.js. Generates small mixed-use plots — malls, parking decks, offices, data centers, and little gabled houses in between (max 5 buildings), sometimes with a striped open-air parking lot and a scatter of drafting-style trees (cone or faceted-ball canopies) — and renders them as clean hidden-line wireframes on an orthographic turntable with a **fully transparent background**. ~40% of plots come out as a German-style retail park (Fachmarktzentrum): buildings ring a shared central parking lot with their entrances facing in. The lot is generated afterwards to fill whatever irregular space the buildings left — drawn as **one union outline** that hugs the angled walls, with clustered (not wall-to-wall) stall markings and an access drive cut into the outline that leads out past the boundary.
+Procedural CAD-style building turnarounds for three.js. Generates small mixed-use plots — malls, parking decks, offices, data centers, and little gabled houses in between (max 5 buildings), sometimes with a striped open-air parking lot and a scatter of drafting-style trees (cone or faceted-ball canopies) — and renders them as clean hidden-line wireframes on an orthographic turntable with a **fully transparent background**. ~40% of plots come out as a German-style retail park (Fachmarktzentrum): buildings ring a shared central parking lot with their entrances facing in. The lot is generated afterwards to fill whatever irregular space the buildings left — drawn as **one union outline** that hugs the angled walls, with clustered (not wall-to-wall) stall markings and an Anfahrt/Ausfahrt: a kerbed drive runs from an opening in the lot outline to the main road, where the junction is cut into the road's near kerb.
 
 Orientation works the way game city generators do it (roads first, buildings inherit alignment from their frontage): a street plan is decided before placement, the street-side cluster of buildings aligns exactly to the street, everything else aligns to the plot's own grid, and the rare freestanding landmark ignores both. Streets are laid tangent to the built-up edge (kerb pair + dashed centerline, overshooting like through-roads), and overlap between angled footprints is resolved with oriented-rectangle separating-axis tests. Visible edges are crisp, occluded edges are faint dashed lines, drafting style.
 
@@ -45,6 +45,8 @@ const ct = new CadTurnaround(canvasOrContainer, {
 
 ct.generate();                      // new random plot → returns seed
 ct.generate(0xC0FFEE);              // same seed → same plot
+ct.zoom = 1.5;                      // also: wheel zooms, horizontal scroll
+                                    // rotates, drag scrubs the turntable
 ct.pause(); ct.play();
 ct.setElevation(30); ct.setSpeed(12);
 ct.setLineColor(0xffffff);

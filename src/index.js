@@ -90,6 +90,7 @@ export class CadTurnaround {
     this._camR = 220;
     this._camTarget = new THREE.Vector3();
     this._frustumHalf = 40;
+    this._zoom = 1;
     this._yaw = THREE.MathUtils.degToRad(35);
     this._dragging = false;
     this.playing = this.opts.autoRotate;
@@ -143,6 +144,9 @@ export class CadTurnaround {
   get yawDeg() { return THREE.MathUtils.euclideanModulo(this._yaw * 180 / Math.PI, 360); }
   set yawDeg(v) { this._yaw = THREE.MathUtils.degToRad(v); }
 
+  get zoom() { return this._zoom; }
+  set zoom(v) { this._zoom = THREE.MathUtils.clamp(v, 0.3, 5); this._resize(); }
+
   setSpeed(degPerSec) { this.opts.speed = degPerSec; }
   setElevation(deg) { this.opts.elevation = deg; this._updateCamera(); }
 
@@ -186,7 +190,7 @@ export class CadTurnaround {
   /** Paper-space scale denominator ("1 : N") at 96 dpi, for title blocks. */
   get scaleDenominator() {
     const h = this.canvas.clientHeight || 1;
-    return Math.round(((2 * this._frustumHalf) / h) * (96 / 0.0254));
+    return Math.round(((2 * this._frustumHalf / this._zoom) / h) * (96 / 0.0254));
   }
 
   /* ——— export ——— */
@@ -268,10 +272,11 @@ export class CadTurnaround {
     this.renderer.setPixelRatio(this.opts.pixelRatio);
     this.renderer.setSize(w, h, false);
     const aspect = w / h;
-    this.camera.top = this._frustumHalf;
-    this.camera.bottom = -this._frustumHalf;
-    this.camera.left = -this._frustumHalf * aspect;
-    this.camera.right = this._frustumHalf * aspect;
+    const half = this._frustumHalf / this._zoom;
+    this.camera.top = half;
+    this.camera.bottom = -half;
+    this.camera.left = -half * aspect;
+    this.camera.right = half * aspect;
     this.camera.updateProjectionMatrix();
   }
 
@@ -294,5 +299,13 @@ export class CadTurnaround {
     };
     this.canvas.addEventListener('pointerup', up);
     this.canvas.addEventListener('pointercancel', up);
+    // vertical scroll zooms, horizontal scroll spins the turntable
+    this.canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY))
+        this._yaw += e.deltaX * 0.003;
+      else
+        this.zoom = this._zoom * Math.exp(-e.deltaY * 0.0015);
+    }, { passive: false });
   }
 }

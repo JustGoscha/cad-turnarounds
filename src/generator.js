@@ -417,10 +417,38 @@ export function buildPlot({ seed = randomSeed(), maxBuildings = 5, materials }) 
   for (const h of group.children) { h.position.x -= cx; h.position.z -= cz; }
 
   const rects = real.map(p => ({ ...p, x: p.x - cx, z: p.z - cz }));
-  if (retailPark) rects.push(...adaptiveLot(group, rects));
+  const bldRects = rects.slice();
+  let lotEnt = null;
+  if (retailPark) {
+    const lot = adaptiveLot(group, rects);
+    rects.push(...lot.bays);
+    lotEnt = lot.ent;
+  }
 
   const siteW = maxX - minX + 16, siteD = maxZ - minZ + 16;
-  if (streetPlan) rects.push(...streets(group, rects, streetPlan, siteW, siteD));
+  if (streetPlan) {
+    rects.push(...streets(group, rects, streetPlan, siteW, siteD, lotEnt, bldRects));
+  } else if (lotEnt) {
+    // no road on this plot: short in/out stub past the lot edge
+    const d = lotEnt.axis === 'x' ? [lotEnt.dir, 0] : [0, lotEnt.dir];
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.Float32BufferAttribute([
+      lotEnt.p1[0], 0, lotEnt.p1[1],
+      lotEnt.p1[0] + d[0] * 14, 0, lotEnt.p1[1] + d[1] * 14,
+      lotEnt.p2[0], 0, lotEnt.p2[1],
+      lotEnt.p2[0] + d[0] * 14, 0, lotEnt.p2[1] + d[1] * 14,
+    ], 3));
+    const seg = new THREE.LineSegments(geom, visible);
+    seg.position.y = 0.02;
+    seg.renderOrder = 2;
+    group.add(seg);
+    rects.push({
+      x: (lotEnt.p1[0] + lotEnt.p2[0]) / 2 + d[0] * 7,
+      z: (lotEnt.p1[1] + lotEnt.p2[1]) / 2 + d[1] * 7,
+      w: lotEnt.axis === 'x' ? 14 : lotEnt.a1 - lotEnt.a0,
+      d: lotEnt.axis === 'x' ? lotEnt.a1 - lotEnt.a0 : 14, a: 0,
+    });
+  }
 
   // scatter trees in the leftover space between footprints
   const trees = randInt(4, 10);
@@ -476,7 +504,7 @@ export function buildPlot({ seed = randomSeed(), maxBuildings = 5, materials }) 
     }
     while (strips.length && !strips[0].runs.length) strips.shift();
     while (strips.length && !strips[strips.length - 1].runs.length) strips.pop();
-    if (!strips.length) return [];
+    if (!strips.length) return { bays: [], ent: null };
 
     // keep only the largest connected patch of tarmac — no orphan fragments
     const nodes = [];
@@ -505,24 +533,43 @@ export function buildPlot({ seed = randomSeed(), maxBuildings = 5, materials }) 
     });
     while (strips.length && !strips[0].runs.length) strips.shift();
     while (strips.length && !strips[strips.length - 1].runs.length) strips.pop();
-    if (!strips.length) return [];
+    if (!strips.length) return { bays: [], ent: null };
 
     const pts = [];
     const H = (xa, xb, zz) => { if (xb - xa > 0.01) pts.push(xa, 0, zz, xb, 0, zz); };
     const V = (xx, za, zb) => { if (zb - za > 0.01) pts.push(xx, 0, za, xx, 0, zb); };
 
-    // 2. entrance drive: through a random aisle strip, out one side
+    // 2. entrance on the side facing the main road when there is one —
+    //    through an aisle (±x) or across a bay cap (±z); the connector
+    //    drive itself is drawn together with the roads
     let ent = null;
-    const aisles = strips.filter(s => !s.isBay && s.runs.length);
-    if (aisles.length) {
-      const s = aisles[Math.floor(rng() * aisles.length)];
-      const dir = rng() < 0.5 ? 1 : -1;
-      const run = s.runs.reduce((m, r) => (dir > 0 ? (r[1] > m[1] ? r : m)
-                                                   : (r[0] < m[0] ? r : m)));
-      ent = { strip: s, run, dir, x: dir > 0 ? run[1] : run[0],
-              za: s.z + 0.5, zb: s.z + s.h - 0.5 };
-      const far = ent.x + dir * 14;               // reaches past the boundary
-      pts.push(ent.x, 0, ent.za, far, 0, ent.za,  ent.x, 0, ent.zb, far, 0, ent.zb);
+    const preferX = streetPlan
+      ? Math.abs(streetPlan.n[0]) >= Math.abs(streetPlan.n[1])
+      : rng() < 0.5;
+    if (preferX) {
+      const aisles = strips.filter(s => !s.isBay && s.runs.length);
+      if (aisles.length) {
+        const s = aisles[Math.floor(rng() * aisles.length)];
+        const dir = streetPlan
+          ? (Math.sign(streetPlan.n[0]) || 1) : (rng() < 0.5 ? 1 : -1);
+        const run = s.runs.reduce((m, r) => (dir > 0 ? (r[1] > m[1] ? r : m)
+                                                     : (r[0] < m[0] ? r : m)));
+        const edge = dir > 0 ? run[1] : run[0];
+        ent = { axis: 'x', dir, edge, a0: s.z + 0.5, a1: s.z + s.h - 0.5,
+                strip: s, p1: [edge, s.z + 0.5], p2: [edge, s.z + s.h - 0.5] };
+      }
+    } else {
+      const dir = streetPlan
+        ? (Math.sign(streetPlan.n[1]) || 1) : (rng() < 0.5 ? 1 : -1);
+      const s = dir > 0 ? strips[strips.length - 1] : strips[0];
+      const edge = dir > 0 ? s.z + s.h : s.z;
+      const wide = s.runs.filter(r => r[1] - r[0] > 10);
+      if (wide.length) {
+        const run = wide[Math.floor(rng() * wide.length)];
+        const xc = rand(run[0] + 3.5, run[1] - 3.5);
+        ent = { axis: 'z', dir, edge, a0: xc - 2.75, a1: xc + 2.75,
+                strip: s, p1: [xc - 2.75, edge], p2: [xc + 2.75, edge] };
+      }
     }
 
     // 3. trace the union outline as closed loops, then chamfer every corner
@@ -623,11 +670,21 @@ export function buildPlot({ seed = randomSeed(), maxBuildings = 5, materials }) 
 
     // chamfer corners and emit, cutting the entrance opening out
     const emit = (x0, z0, x1, z1) => {
-      if (ent && Math.abs(x0 - x1) < 0.02 && Math.abs(x0 - ent.x) < 0.05) {
+      if (ent && ent.axis === 'x'
+          && Math.abs(x0 - x1) < 0.02 && Math.abs(x0 - ent.edge) < 0.05) {
         const lo = Math.min(z0, z1), hi = Math.max(z0, z1);
-        if (lo < ent.zb && hi > ent.za) {          // overlaps the opening
-          if (lo < ent.za) pts.push(x0, 0, lo, x0, 0, ent.za);
-          if (hi > ent.zb) pts.push(x0, 0, ent.zb, x0, 0, hi);
+        if (lo < ent.a1 && hi > ent.a0) {          // overlaps the opening
+          if (lo < ent.a0) pts.push(x0, 0, lo, x0, 0, ent.a0);
+          if (hi > ent.a1) pts.push(x0, 0, ent.a1, x0, 0, hi);
+          return;
+        }
+      }
+      if (ent && ent.axis === 'z'
+          && Math.abs(z0 - z1) < 0.02 && Math.abs(z0 - ent.edge) < 0.05) {
+        const lo = Math.min(x0, x1), hi = Math.max(x0, x1);
+        if (lo < ent.a1 && hi > ent.a0) {
+          if (lo < ent.a0) pts.push(lo, 0, z0, ent.a0, 0, z0);
+          if (hi > ent.a1) pts.push(ent.a1, 0, z0, hi, 0, z0);
           return;
         }
       }
@@ -663,6 +720,8 @@ export function buildPlot({ seed = randomSeed(), maxBuildings = 5, materials }) 
         let marking = rng() < 0.5;
         for (let mx = ra + stall; mx <= rb - stall + 1e-6; mx += stall) {
           if (rng() < 0.18) marking = !marking;
+          if (ent && ent.axis === 'z' && s === ent.strip &&
+              mx > ent.a0 - 0.5 && mx < ent.a1 + 0.5) continue;  // keep the gate clear
           if (marking) V(mx, s.z, s.z + s.h);
         }
       }
@@ -677,46 +736,99 @@ export function buildPlot({ seed = randomSeed(), maxBuildings = 5, materials }) 
       g.add(seg);
     }
 
-    // footprints so trees keep off the lot and the drive
+    // footprints so trees keep off the lot
     const bays = [];
     for (const s of strips)
       for (const [ra, rb] of s.runs)
         bays.push({ x: (ra + rb) / 2, z: s.z + s.h / 2, w: rb - ra, d: s.h, a: 0 });
-    if (ent)
-      bays.push({ x: ent.x + ent.dir * 7, z: (ent.za + ent.zb) / 2, w: 14, d: ent.zb - ent.za, a: 0 });
-    return bays;
+    return { bays, ent };
   }
 
   // Streets from the plan the buildings were oriented against: laid tangent
   // to the built-up edge, angled with the plan, kerb pair + dashed
-  // centerline, overshooting so they read as through-roads. Returns their
-  // footprints so trees keep off the tarmac.
-  function streets(g, allRects, plan, sw, sd) {
+  // centerline, overshooting so they read as through-roads. When the shared
+  // lot has an entrance, an Anfahrt/Ausfahrt drive connects it to the
+  // nearest road, and the junction is cut into that road's near kerb.
+  // Returns all footprints so trees keep off the tarmac.
+  function streets(g, allRects, plan, sw, sd, lotEnt, bldRects) {
     const roadW = 6.5;
     const len = Math.hypot(sw, sd) / 2 + 6;
     const roads = [];
+    const out = [];
     const solid = [], dashed = [];
 
     const lay = (u, n) => {
       let maxProj = -Infinity;              // built-up extent along the normal
       for (const p of allRects)
         maxProj = Math.max(maxProj, p.x * n[0] + p.z * n[1] + rectProj(p, n[0], n[1]));
-      const off = maxProj + 2 + roadW / 2;
-      for (const o of [-roadW / 2, roadW / 2])
-        solid.push(
-          n[0] * (off + o) - u[0] * len, 0, n[1] * (off + o) - u[1] * len,
-          n[0] * (off + o) + u[0] * len, 0, n[1] * (off + o) + u[1] * len);
-      dashed.push(
-        n[0] * off - u[0] * len, 0, n[1] * off - u[1] * len,
-        n[0] * off + u[0] * len, 0, n[1] * off + u[1] * len);
-      roads.push({ x: n[0] * off, z: n[1] * off, w: 2 * len, d: roadW,
-                   a: -Math.atan2(u[1], u[0]) });
+      roads.push({ u, n, off: maxProj + 2 + roadW / 2, cut: null });
     };
-
     lay(plan.u, plan.n);
     if (plan.second) {                      // cross street, perpendicular
       const s2 = rng() < 0.5 ? 1 : -1;
       lay(plan.n, [plan.u[0] * s2, plan.u[1] * s2]);
+    }
+
+    if (lotEnt) {
+      const d = lotEnt.axis === 'x' ? [lotEnt.dir, 0] : [0, lotEnt.dir];
+      const cw = lotEnt.a1 - lotEnt.a0;
+      const drive = (t1, t2) => {           // kerbs from the opening outward
+        const q1 = [lotEnt.p1[0] + d[0] * t1, lotEnt.p1[1] + d[1] * t1];
+        const q2 = [lotEnt.p2[0] + d[0] * t2, lotEnt.p2[1] + d[1] * t2];
+        solid.push(lotEnt.p1[0], 0, lotEnt.p1[1], q1[0], 0, q1[1],
+                   lotEnt.p2[0], 0, lotEnt.p2[1], q2[0], 0, q2[1]);
+        return [q1, q2];
+      };
+      const rect = tm => ({
+        x: (lotEnt.p1[0] + lotEnt.p2[0]) / 2 + d[0] * tm / 2,
+        z: (lotEnt.p1[1] + lotEnt.p2[1]) / 2 + d[1] * tm / 2,
+        w: lotEnt.axis === 'x' ? tm : cw,
+        d: lotEnt.axis === 'x' ? cw : tm, a: 0,
+      });
+
+      let best = null;
+      for (const rd of roads) {
+        const dn = d[0] * rd.n[0] + d[1] * rd.n[1];
+        if (dn < 0.25) continue;            // road ~parallel or wrong side
+        const t1 = (rd.off - roadW / 2
+          - (lotEnt.p1[0] * rd.n[0] + lotEnt.p1[1] * rd.n[1])) / dn;
+        const t2 = (rd.off - roadW / 2
+          - (lotEnt.p2[0] * rd.n[0] + lotEnt.p2[1] * rd.n[1])) / dn;
+        if (Math.min(t1, t2) < 1 || Math.max(t1, t2) > 90) continue;
+        const tm = (t1 + t2) / 2;
+        const corridor = rect(tm);
+        if (!bldRects.every(p => obbSeparated(corridor, p, 0.5))) continue;
+        if (!best || tm < best.tm) best = { rd, t1, t2, tm, corridor };
+      }
+      if (best) {
+        const [q1, q2] = drive(best.t1, best.t2);
+        const s1 = q1[0] * best.rd.u[0] + q1[1] * best.rd.u[1];
+        const s2 = q2[0] * best.rd.u[0] + q2[1] * best.rd.u[1];
+        best.rd.cut = [Math.min(s1, s2) - 0.6, Math.max(s1, s2) + 0.6];
+        out.push(best.corridor);
+      } else {                              // blocked: fall back to a stub
+        drive(14, 14);
+        out.push(rect(14));
+      }
+    }
+
+    for (const rd of roads) {
+      const { u, n, off } = rd;
+      const kerb = (o, sa, sb) => solid.push(
+        n[0] * (off + o) + u[0] * sa, 0, n[1] * (off + o) + u[1] * sa,
+        n[0] * (off + o) + u[0] * sb, 0, n[1] * (off + o) + u[1] * sb);
+      if (rd.cut) {                         // junction opening in the near kerb
+        kerb(-roadW / 2, -len, rd.cut[0]);
+        kerb(-roadW / 2, rd.cut[1], len);
+      } else {
+        kerb(-roadW / 2, -len, len);
+      }
+      kerb(roadW / 2, -len, len);
+      dashed.push(
+        n[0] * off - u[0] * len, 0, n[1] * off - u[1] * len,
+        n[0] * off + u[0] * len, 0, n[1] * off + u[1] * len);
+      out.push({ x: n[0] * off, z: n[1] * off, w: 2 * len, d: roadW,
+                 a: -Math.atan2(u[1], u[0]) });
     }
 
     const kerbs = new THREE.BufferGeometry();
@@ -732,7 +844,7 @@ export function buildPlot({ seed = randomSeed(), maxBuildings = 5, materials }) 
     centerSeg.position.y = 0.015;
     centerSeg.renderOrder = 2;
     g.add(centerSeg);
-    return roads;
+    return out;
   }
 
   // Dashed site-boundary rectangle with outward corner ticks.
